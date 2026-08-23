@@ -19,13 +19,14 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
           xcodebuild -version
 
-      - name: Locate project
+      - name: Locate Xcode project
+        shell: bash
         run: |
-          echo "===== PROJECT FILES ====="
-          find . -maxdepth 5 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -print
-          echo "========================="
+          echo "===== XCODE PROJECTS ====="
+          find . -maxdepth 6 -type d -name "*.xcodeproj" -print
+          echo "=========================="
 
-      - name: Build
+      - name: Build ibaal3105
         shell: bash
         run: |
           set -o pipefail
@@ -33,13 +34,16 @@ jobs:
           PROJECT="ibaal3105/ThreeOneOSFive.xcodeproj"
 
           if [ ! -d "$PROJECT" ]; then
-            echo "ERROR: Project tidak ditemukan:"
+            echo "ERROR: Xcode project tidak ditemukan:"
             echo "$PROJECT"
             echo
-            echo "Isi repo:"
-            find . -maxdepth 4 -type d -name "*.xcodeproj" -print
+            echo "Project yang ditemukan:"
+            find . -maxdepth 6 -type d -name "*.xcodeproj" -print
             exit 66
           fi
+
+          rm -rf build
+          mkdir -p build/Release-iphoneos
 
           xcodebuild \
             -project "$PROJECT" \
@@ -53,9 +57,21 @@ jobs:
 
           status=${PIPESTATUS[0]}
 
+          echo ""
           echo "===== ACTUAL COMPILER ERRORS ====="
-          grep -nE "error:|fatal error:" build.log || true
+
+          grep -nE \
+            "error:|fatal error:|SwiftCompile|CompileSwift" \
+            build.log \
+            | tail -100 \
+            || true
+
           echo "===== END COMPILER ERRORS ====="
+
+          echo ""
+          echo "===== LAST BUILD LOG ====="
+          tail -200 build.log
+          echo "===== END BUILD LOG ====="
 
           exit "$status"
 
@@ -65,3 +81,4 @@ jobs:
         with:
           name: ibaal3105-build-log
           path: build.log
+          if-no-files-found: ignore
