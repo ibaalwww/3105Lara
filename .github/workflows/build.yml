@@ -1,76 +1,32 @@
-name: Build 3105
+name: Build ibaal3105
 
 on:
-  push:
-    branches:
-      - main
-      - master
-
   workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
+      - name: Show Xcode
+        run: xcodebuild -version
 
-      - name: Build unsigned archive
+      - name: List schemes
+        run: xcodebuild -list -project ThreeOneOSFive.xcodeproj
+
+      - name: Build
         run: |
-          set -e
-
-          rm -rf build
-
           xcodebuild \
-            -project "3105-1.1.4/ThreeOneOSFive.xcodeproj" \
-            -scheme "3105" \
+            -project ThreeOneOSFive.xcodeproj \
+            -scheme ThreeOneOSFive \
             -configuration Release \
             -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            -archivePath "$PWD/build/3105.xcarchive" \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            archive
-
-      - name: Create unsigned IPA
-        run: |
-          set -e
-
-          APP_PATH="build/3105.xcarchive/Products/Applications/3105.app"
-
-          if [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: 3105.app tidak ditemukan:"
-            find build/3105.xcarchive -maxdepth 5 -type d -name "*.app"
-            exit 1
-          fi
-
-          rm -rf build/Payload
-          mkdir -p build/Payload
-
-          cp -R "$APP_PATH" "build/Payload/3105.app"
-
-          cd build
-          zip -qry "3105-unsigned.ipa" "Payload"
-
-          echo "IPA berhasil dibuat:"
-          ls -lh "3105-unsigned.ipa"
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: 3105-ipa
-          path: build/3105-unsigned.ipa
-          if-no-files-found: error
-
-      - name: Upload XCArchive
-        uses: actions/upload-artifact@v4
-        with:
-          name: 3105-archive
-          path: build/3105.xcarchive
-          if-no-files-found: error
+            build
