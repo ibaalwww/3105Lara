@@ -1,4 +1,4 @@
-name: Build ibaal3105
+name: Build unsigned IPA
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  build:
+  build-ipa:
     runs-on: macos-latest
 
     defaults:
@@ -21,19 +21,41 @@ jobs:
       - name: Xcode version
         run: xcodebuild -version
 
-      - name: List Xcode project
+      - name: Find scheme
         run: |
           xcodebuild \
             -list \
             -project ThreeOneOSFive.xcodeproj
 
-      - name: Build
+      - name: Archive
         run: |
+          mkdir -p build
+
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
+            -scheme "SCHEME_YANG_TADI_IJO" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/ibaal3105.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            archive
+
+      - name: Create unsigned IPA
+        run: |
+          mkdir -p build/Payload
+
+          cp -R \
+            build/ibaal3105.xcarchive/Products/Applications/*.app \
+            build/Payload/
+
+          cd build
+          zip -r ibaal3105-unsigned.ipa Payload
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibaal3105-unsigned
+          path: ibaal3105/build/ibaal3105-unsigned.ipa
+          if-no-files-found: error
