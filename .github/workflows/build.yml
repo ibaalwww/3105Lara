@@ -21,14 +21,16 @@ jobs:
       - name: Xcode version
         run: xcodebuild -version
 
-      - name: List project
-        run: xcodebuild -list -project ThreeOneOSFive.xcodeproj
+      - name: List Xcode project
+        run: |
+          xcodebuild \
+            -list \
+            -project ThreeOneOSFive.xcodeproj
 
       - name: Build
         run: |
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
-            -scheme ThreeOneOSFive \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
