@@ -19,7 +19,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Xcode version
-        run: xcodebuild -version
+        run: |
+          xcodebuild -version
+
+      - name: Inspect project
+        run: |
+          xcodebuild \
+            -list \
+            -project ThreeOneOSFive.xcodeproj
 
       - name: Build unsigned app
         run: |
@@ -34,47 +41,87 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Find built app
-        id: app
+      - name: Locate build output
+        id: output
         shell: bash
         run: |
           set -e
 
-          echo "Searching for .app..."
+          echo "Reading Xcode build settings..."
 
-          APP=$(find \
-            "$HOME/Library/Developer/Xcode/DerivedData" \
-            -type d \
-            -path "*/Build/Products/Release-iphoneos/*.app" \
-            -print -quit)
+          SETTINGS=$(xcodebuild \
+            -project ThreeOneOSFive.xcodeproj \
+            -configuration Release \
+            -sdk iphoneos \
+            -showBuildSettings)
 
-          if [ -z "$APP" ]; then
-            echo "::error::No Release-iphoneos .app found."
+          TARGET_DIR=$(echo "$SETTINGS" | \
+            awk -F ' = ' '/TARGET_BUILD_DIR/ {print $2; exit}')
 
-            echo "Available applications:"
+          FULL_PRODUCT=$(echo "$SETTINGS" | \
+            awk -F ' = ' '/FULL_PRODUCT_NAME/ {print $2; exit}')
+
+          echo "TARGET_BUILD_DIR:"
+          echo "$TARGET_DIR"
+
+          echo "FULL_PRODUCT_NAME:"
+          echo "$FULL_PRODUCT"
+
+          APP="$TARGET_DIR/$FULL_PRODUCT"
+
+          if [ ! -d "$APP" ]; then
+            echo "::error::Expected .app was not found."
+            echo "Expected:"
+            echo "$APP"
+
+            echo ""
+            echo "Searching fallback locations..."
+
             find "$HOME/Library/Developer/Xcode/DerivedData" \
               -type d \
               -name "*.app" \
-              -print
+              -print || true
 
             exit 1
           fi
 
-          echo "Found app:"
+          echo ""
+          echo "================================"
+          echo "APP FOUND"
+          echo "================================"
           echo "$APP"
 
           echo "app=$APP" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect application
+        run: |
+          set -e
+
+          APP="${{ steps.output.outputs.app }}"
+
+          echo "Application:"
+          echo "$APP"
+
+          echo ""
+          echo "Info.plist:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$APP/Info.plist"
+
+          echo ""
+          echo "Application size:"
+          du -sh "$APP"
 
       - name: Create unsigned IPA
         run: |
           set -e
 
+          APP="${{ steps.output.outputs.app }}"
+
           rm -rf build
           mkdir -p build/Payload
 
-          cp -R \
-            "${{ steps.app.outputs.app }}" \
-            build/Payload/
+          cp -R "$APP" build/Payload/
 
           cd build
 
@@ -83,12 +130,23 @@ jobs:
             ibaal3105-unsigned.ipa \
             Payload
 
-          echo "Created IPA:"
+          echo ""
+          echo "================================"
+          echo "UNSIGNED IPA CREATED"
+          echo "================================"
+
           ls -lh ibaal3105-unsigned.ipa
 
-      - name: Inspect IPA
+      - name: Verify IPA
         run: |
+          set -e
+
+          echo "IPA contents:"
           unzip -l build/ibaal3105-unsigned.ipa
+
+          echo ""
+          echo "IPA size:"
+          ls -lh build/ibaal3105-unsigned.ipa
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -96,3 +154,10 @@ jobs:
           name: ibaal3105-unsigned
           path: ibaal3105/build/ibaal3105-unsigned.ipa
           if-no-files-found: error
+
+      - name: Upload build archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibaal3105-build-output
+          path: ibaal3105/build/
+          if-no-files-found: warn
