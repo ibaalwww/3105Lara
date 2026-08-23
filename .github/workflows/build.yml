@@ -1,4 +1,4 @@
-name: ibaal3105 Unsigned IPA
+name: Build ibaal3105 Unsigned IPA
 
 on:
   workflow_dispatch:
@@ -10,79 +10,67 @@ jobs:
   build:
     runs-on: macos-latest
 
+    defaults:
+      run:
+        working-directory: ibaal3105
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Xcode
+      - name: Xcode version
         run: xcodebuild -version
 
       - name: Build ibaal3105
-        working-directory: ibaal3105
         run: |
           set -o pipefail
 
-          rm -rf "$RUNNER_TEMP/ibaal3105-build.log"
-
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
+            -target ibaal3105 \
             -configuration Release \
             -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
+            CONFIGURATION_BUILD_DIR="$PWD/build/Release-iphoneos" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build 2>&1 | tee "$RUNNER_TEMP/ibaal3105-build.log"
+            build 2>&1 | tee build.log
 
-      - name: Find application bundle
-        working-directory: ibaal3105
-        shell: bash
+      - name: Verify application
         run: |
           set -e
 
-          echo "Searching Xcode output for application bundles..."
+          APP="$PWD/build/Release-iphoneos/ibaal3105.app"
 
-          APP=""
-
-          while IFS= read -r line; do
-            if [ -d "$line" ]; then
-              APP="$line"
-              break
-            fi
-          done < <(
-            find \
-              "$HOME/Library/Developer/Xcode/DerivedData" \
-              -type d \
-              -name "*.app" \
-              -print 2>/dev/null
-          )
-
-          if [ -z "$APP" ]; then
-            echo "::error::xcodebuild completed but no .app bundle was produced."
-
-            echo ""
-            echo "=== Build products mentioned by Xcode ==="
-            grep -E \
-              "Build/Products|\.app|BUILT_PRODUCTS_DIR|TARGET_BUILD_DIR" \
-              "$RUNNER_TEMP/ibaal3105-build.log" \
-              | tail -n 100 || true
-
+          if [ ! -d "$APP" ]; then
+            echo "::error::ibaal3105.app was not produced."
             exit 1
           fi
 
-          echo "Found application:"
+          echo "APP FOUND:"
           echo "$APP"
 
-          mkdir -p build/Payload
-          cp -R "$APP" build/Payload/
+          echo ""
+          echo "Bundle ID:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$APP/Info.plist"
 
-      - name: Create IPA
-        working-directory: ibaal3105
+          echo ""
+          echo "App size:"
+          du -sh "$APP"
+
+      - name: Create unsigned IPA
         run: |
           set -e
 
-          cd build
+          APP="$PWD/build/Release-iphoneos/ibaal3105.app"
 
-          rm -f ibaal3105-unsigned.ipa
+          rm -rf build/Payload
+          mkdir -p build/Payload
+
+          cp -R "$APP" build/Payload/
+
+          cd build
 
           /usr/bin/zip \
             -qry \
@@ -91,19 +79,35 @@ jobs:
 
           test -f ibaal3105-unsigned.ipa
 
-          echo "IPA:"
+          echo "================================"
+          echo "UNSIGNED IPA CREATED"
+          echo "================================"
+
           ls -lh ibaal3105-unsigned.ipa
 
-      - name: Inspect IPA
-        working-directory: ibaal3105
+      - name: Verify IPA
         run: |
           set -e
 
-          unzip -l build/ibaal3105-unsigned.ipa
+          cd build
 
-      - name: Upload IPA
+          unzip -t ibaal3105-unsigned.ipa
+
+          echo ""
+          echo "IPA CONTENT:"
+          unzip -l ibaal3105-unsigned.ipa
+
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: ibaal3105-unsigned
           path: ibaal3105/build/ibaal3105-unsigned.ipa
           if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibaal3105-build-log
+          path: ibaal3105/build.log
+          if-no-files-found: ignore
