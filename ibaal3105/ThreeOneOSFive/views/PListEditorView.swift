@@ -2,32 +2,31 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct PListEditorView: View {
+    @State private var entries: [Entry] = []
+    @State private var fileURL: URL?
+    @State private var showImporter = false
+    @State private var showExporter = false
+    @State private var message = "No plist loaded"
+    @State private var errorText: String?
 
-    @State private var entries: [DaemonEntry] = []
-    @State private var showingImporter = false
-    @State private var showingExporter = false
-    @State private var workingURL: URL?
-    @State private var status = "No plist loaded"
-    @State private var errorMessage: String?
-
-    struct DaemonEntry: Identifiable {
+    struct Entry: Identifiable {
         let id = UUID()
         var key: String
-        var enabled: Bool
+        var value: Bool
     }
 
     var body: some View {
         List {
             Section {
                 Button {
-                    showingImporter = true
+                    showImporter = true
                 } label: {
                     Label("Open plist", systemImage: "folder")
                 }
 
                 if !entries.isEmpty {
                     Button {
-                        exportWorkingCopy()
+                        showExporter = true
                     } label: {
                         Label("Save working copy", systemImage: "square.and.arrow.down")
                     }
@@ -35,7 +34,7 @@ struct PListEditorView: View {
             }
 
             Section("Status") {
-                Text(status)
+                Text(message)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -43,77 +42,72 @@ struct PListEditorView: View {
             if !entries.isEmpty {
                 Section("Daemons") {
                     ForEach($entries) { $entry in
-                        Toggle(entry.key, isOn: $entry.enabled)
+                        Toggle(entry.key, isOn: $entry.value)
                     }
                 }
             }
         }
         .navigationTitle("Plist Editor")
         .fileImporter(
-            isPresented: $showingImporter,
+            isPresented: $showImporter,
             allowedContentTypes: [.propertyList],
             allowsMultipleSelection: false
         ) { result in
-            handleImport(result)
+            importPlist(result)
         }
         .fileExporter(
-            isPresented: $showingExporter,
+            isPresented: $showExporter,
             document: PlistDocument(entries: entries),
             contentType: .propertyList,
-            defaultFilename: workingURL?.deletingPathExtension().lastPathComponent ?? "disable"
+            defaultFilename: "disable"
         ) { result in
             switch result {
             case .success(let url):
-                workingURL = url
-                status = "Saved: \(url.lastPathComponent)"
+                fileURL = url
+                message = "Saved: \(url.lastPathComponent)"
             case .failure(let error):
-                errorMessage = error.localizedDescription
+                errorText = error.localizedDescription
             }
         }
         .alert(
             "Plist Error",
             isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+                get: { errorText != nil },
+                set: { if !$0 { errorText = nil } }
             )
         ) {
             Button("OK", role: .cancel) {
-                errorMessage = nil
+                errorText = nil
             }
         } message: {
-            Text(errorMessage ?? "")
+            Text(errorText ?? "")
         }
     }
 
-    private func handleImport(
-        _ result: Result<[URL], Error>
-    ) {
+    private func importPlist(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
             load(url)
 
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            errorText = error.localizedDescription
         }
     }
 
     private func load(_ url: URL) {
-        do {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessed {
-                    url.stopAccessingSecurityScopedResource()
-                }
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessed {
+                url.stopAccessingSecurityScopedResource()
             }
+        }
 
+        do {
             let data = try Data(contentsOf: url)
 
-            guard !data.isEmpty else {
-                throw PlistEditorError.invalidPlist
-            }
-
             var format = PropertyListSerialization.PropertyListFormat.xml
+
             let object = try PropertyListSerialization.propertyList(
                 from: data,
                 options: [],
@@ -121,42 +115,38 @@ struct PListEditorView: View {
             )
 
             guard let dictionary = object as? [String: Any] else {
-                throw PlistEditorError.invalidStructure
+                throw EditorError.invalidStructure
             }
 
-            var parsed: [DaemonEntry] = []
+            var result: [Entry] = []
 
             for key in dictionary.keys.sorted() {
                 guard let value = dictionary[key] as? Bool else {
-                    throw PlistEditorError.invalidDaemonValue(key)
+                    throw EditorError.invalidValue(key)
                 }
 
-                parsed.append(
-                    DaemonEntry(
+                result.append(
+                    Entry(
                         key: key,
-                        enabled: value
+                        value: value
                     )
                 )
             }
 
-            entries = parsed
-            workingURL = url
-            status = "Loaded \(parsed.count) daemon entries"
-            errorMessage = nil
+            entries = result
+            fileURL = url
+            message = "Loaded \(result.count) entries"
+            errorText = nil
 
-        } catch let error as PlistEditorError {
-            errorMessage = error.localizedDescription
+        } catch let error as EditorError {
+            errorText = error.localizedDescription
         } catch {
-            errorMessage = "Unable to read plist: \(error.localizedDescription)"
+            errorText = "Unable to read plist: \(error.localizedDescription)"
         }
-    }
-
-    private func exportWorkingCopy() {
-        showingExporter = true
     }
 }
 
-// MARK: - Document
+// MARK: - FileDocument
 
 private struct PlistDocument: FileDocument {
 
@@ -164,15 +154,15 @@ private struct PlistDocument: FileDocument {
         [.propertyList]
     }
 
-    var entries: [PListEditorView.DaemonEntry]
+    var entries: [PListEditorView.Entry]
 
-    init(entries: [PListEditorView.DaemonEntry] = []) {
+    init(entries: [PListEditorView.Entry]) {
         self.entries = entries
     }
 
     init(configuration: ReadConfiguration) throws {
         guard let data = configuration.file.regularFileContents else {
-            throw PlistEditorError.invalidPlist
+            throw EditorError.invalidPlist
         }
 
         var format = PropertyListSerialization.PropertyListFormat.xml
@@ -184,25 +174,25 @@ private struct PlistDocument: FileDocument {
         )
 
         guard let dictionary = object as? [String: Any] else {
-            throw PlistEditorError.invalidStructure
+            throw EditorError.invalidStructure
         }
 
-        var parsed: [PListEditorView.DaemonEntry] = []
+        var result: [PListEditorView.Entry] = []
 
         for key in dictionary.keys.sorted() {
             guard let value = dictionary[key] as? Bool else {
-                throw PlistEditorError.invalidDaemonValue(key)
+                throw EditorError.invalidValue(key)
             }
 
-            parsed.append(
-                PListEditorView.DaemonEntry(
+            result.append(
+                PListEditorView.Entry(
                     key: key,
-                    enabled: value
+                    value: value
                 )
             )
         }
 
-        entries = parsed
+        entries = result
     }
 
     func fileWrapper(
@@ -212,7 +202,7 @@ private struct PlistDocument: FileDocument {
         var dictionary: [String: Bool] = [:]
 
         for entry in entries {
-            dictionary[entry.key] = entry.enabled
+            dictionary[entry.key] = entry.value
         }
 
         let data = try PropertyListSerialization.data(
@@ -221,17 +211,19 @@ private struct PlistDocument: FileDocument {
             options: 0
         )
 
-        return FileWrapper(regularFileWithContents: data)
+        return FileWrapper(
+            regularFileWithContents: data
+        )
     }
 }
 
 // MARK: - Errors
 
-private enum PlistEditorError: LocalizedError {
+private enum EditorError: LocalizedError {
 
     case invalidPlist
     case invalidStructure
-    case invalidDaemonValue(String)
+    case invalidValue(String)
 
     var errorDescription: String? {
         switch self {
@@ -241,7 +233,7 @@ private enum PlistEditorError: LocalizedError {
         case .invalidStructure:
             return "The plist root must be a dictionary."
 
-        case .invalidDaemonValue(let key):
+        case .invalidValue(let key):
             return "Invalid Boolean value for daemon: \(key)"
         }
     }
