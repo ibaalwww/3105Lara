@@ -19,8 +19,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Xcode version
-        run: |
-          xcodebuild -version
+        run: xcodebuild -version
 
       - name: Inspect project
         run: |
@@ -28,36 +27,35 @@ jobs:
             -list \
             -project ThreeOneOSFive.xcodeproj
 
-      - name: Detect shared scheme
-        id: scheme
+      - name: Detect target
+        id: target
         shell: bash
         run: |
           set -e
 
-          SCHEME=$(
+          TARGET=$(
             xcodebuild \
               -list \
               -project ThreeOneOSFive.xcodeproj 2>/dev/null |
             awk '
-              /^Schemes:/ {
+              /^Targets:/ {
                 found=1
                 next
               }
               found && NF {
-                print $1
+                print $0
                 exit
               }
             '
           )
 
-          if [ -z "$SCHEME" ]; then
-            echo "::error::No shared Xcode scheme was found."
-            echo "The project must contain a shared .xcscheme."
+          if [ -z "$TARGET" ]; then
+            echo "::error::No Xcode target found."
             exit 1
           fi
 
-          echo "Detected scheme: $SCHEME"
-          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Detected target: $TARGET"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
       - name: Archive
         run: |
@@ -68,7 +66,7 @@ jobs:
 
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
-            -scheme "${{ steps.scheme.outputs.scheme }}" \
+            -target "${{ steps.target.outputs.target }}" \
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
@@ -77,7 +75,9 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
-      - name: Verify archive
+      - name: Find archived app
+        id: app
+        shell: bash
         run: |
           set -e
 
@@ -88,12 +88,12 @@ jobs:
             -print -quit)
 
           if [ -z "$APP" ]; then
-            echo "::error::No .app was produced."
+            echo "::error::Archive succeeded but no .app was found."
             exit 1
           fi
 
-          echo "Archived app:"
-          echo "$APP"
+          echo "APP=$APP"
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
 
       - name: Create unsigned IPA
         run: |
@@ -102,13 +102,7 @@ jobs:
           rm -rf build/Payload
           mkdir -p build/Payload
 
-          APP=$(find \
-            build/ibaal3105.xcarchive/Products/Applications \
-            -maxdepth 1 \
-            -name "*.app" \
-            -print -quit)
-
-          cp -R "$APP" build/Payload/
+          cp -R "${{ steps.app.outputs.app }}" build/Payload/
 
           cd build
 
@@ -117,17 +111,17 @@ jobs:
             ibaal3105-unsigned.ipa \
             Payload
 
-          echo "Created:"
+          echo "IPA created:"
           ls -lh ibaal3105-unsigned.ipa
 
-      - name: Upload IPA artifact
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: ibaal3105-unsigned
           path: ibaal3105/build/ibaal3105-unsigned.ipa
           if-no-files-found: error
 
-      - name: Upload Xcode archive
+      - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
           name: ibaal3105-xcarchive
