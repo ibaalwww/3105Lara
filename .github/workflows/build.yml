@@ -19,13 +19,30 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
           xcodebuild -version
 
+      - name: Locate project
+        run: |
+          echo "===== PROJECT FILES ====="
+          find . -maxdepth 5 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -print
+          echo "========================="
+
       - name: Build
         shell: bash
         run: |
           set -o pipefail
 
+          PROJECT="ibaal3105/ThreeOneOSFive.xcodeproj"
+
+          if [ ! -d "$PROJECT" ]; then
+            echo "ERROR: Project tidak ditemukan:"
+            echo "$PROJECT"
+            echo
+            echo "Isi repo:"
+            find . -maxdepth 4 -type d -name "*.xcodeproj" -print
+            exit 66
+          fi
+
           xcodebuild \
-            -project ThreeOneOSFive.xcodeproj \
+            -project "$PROJECT" \
             -target ibaal3105 \
             -configuration Release \
             -sdk iphoneos \
