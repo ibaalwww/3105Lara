@@ -19,7 +19,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Xcode version
-        run: xcodebuild -version
+        run: |
+          xcodebuild -version
 
       - name: Inspect project
         run: |
@@ -27,37 +28,7 @@ jobs:
             -list \
             -project ThreeOneOSFive.xcodeproj
 
-      - name: Detect target
-        id: target
-        shell: bash
-        run: |
-          set -e
-
-          TARGET=$(
-            xcodebuild \
-              -list \
-              -project ThreeOneOSFive.xcodeproj 2>/dev/null |
-            awk '
-              /^Targets:/ {
-                found=1
-                next
-              }
-              found && NF {
-                print $0
-                exit
-              }
-            '
-          )
-
-          if [ -z "$TARGET" ]; then
-            echo "::error::No Xcode target found."
-            exit 1
-          fi
-
-          echo "Detected target: $TARGET"
-          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
-
-      - name: Archive
+      - name: Build unsigned app
         run: |
           set -e
 
@@ -66,33 +37,38 @@ jobs:
 
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
-            -target "${{ steps.target.outputs.target }}" \
             -configuration Release \
             -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            -archivePath "$PWD/build/ibaal3105.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            archive
+            build
 
-      - name: Find archived app
+      - name: Locate app
         id: app
         shell: bash
         run: |
           set -e
 
+          echo "Searching for built .app..."
+
           APP=$(find \
-            build/ibaal3105.xcarchive/Products/Applications \
-            -maxdepth 1 \
+            build/DerivedData/Build/Products \
+            -type d \
             -name "*.app" \
             -print -quit)
 
           if [ -z "$APP" ]; then
-            echo "::error::Archive succeeded but no .app was found."
+            echo "::error::Build completed but no .app was found."
+            echo "Contents:"
+            find build/DerivedData/Build/Products -maxdepth 4 -print
             exit 1
           fi
 
-          echo "APP=$APP"
+          echo "Found:"
+          echo "$APP"
+
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
       - name: Create unsigned IPA
@@ -102,7 +78,9 @@ jobs:
           rm -rf build/Payload
           mkdir -p build/Payload
 
-          cp -R "${{ steps.app.outputs.app }}" build/Payload/
+          cp -R \
+            "${{ steps.app.outputs.app }}" \
+            build/Payload/
 
           cd build
 
@@ -111,7 +89,10 @@ jobs:
             ibaal3105-unsigned.ipa \
             Payload
 
-          echo "IPA created:"
+          echo ""
+          echo "================================"
+          echo "Unsigned IPA created"
+          echo "================================"
           ls -lh ibaal3105-unsigned.ipa
 
       - name: Upload unsigned IPA
@@ -119,11 +100,4 @@ jobs:
         with:
           name: ibaal3105-unsigned
           path: ibaal3105/build/ibaal3105-unsigned.ipa
-          if-no-files-found: error
-
-      - name: Upload archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: ibaal3105-xcarchive
-          path: ibaal3105/build/ibaal3105.xcarchive
           if-no-files-found: error
