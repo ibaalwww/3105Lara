@@ -1,143 +1,21 @@
-name: Build ibaal3105 Unsigned IPA
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-jobs:
-  build:
-    runs-on: macos-latest
-
-    defaults:
-      run:
-        working-directory: ibaal3105
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Xcode version
-        run: xcodebuild -version
-
-      - name: Build unsigned app
+      - name: Diagnose Xcode targets
+        shell: bash
         run: |
           set -e
+
+          echo "===== PROJECT ====="
+          xcodebuild \
+            -list \
+            -project ThreeOneOSFive.xcodeproj
+
+          echo ""
+          echo "===== BUILD SETTINGS ====="
 
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
             -configuration Release \
             -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      - name: Locate application
-        id: app
-        shell: bash
-        run: |
-          set -e
-
-          DERIVED="$HOME/Library/Developer/Xcode/DerivedData"
-
-          echo "Searching Build/Products..."
-
-          APP=$(find "$DERIVED" \
-            -type d \
-            -path "*/Build/Products/*" \
-            -name "*.app" \
-            -print 2>/dev/null | head -n 1)
-
-          if [ -z "$APP" ]; then
-            echo "::error::No .app found in Build/Products."
-
-            echo ""
-            echo "=== Build/Products ==="
-            find "$DERIVED" \
-              -type d \
-              -path "*/Build/Products/*" \
-              -print 2>/dev/null || true
-
-            echo ""
-            echo "=== Xcode build directories ==="
-            find "$DERIVED" \
-              -type d \
-              -path "*/Build/*" \
-              -maxdepth 8 \
-              -print 2>/dev/null | head -n 300
-
-            exit 1
-          fi
-
-          echo "FOUND APP:"
-          echo "$APP"
-
-          echo "app=$APP" >> "$GITHUB_OUTPUT"
-
-      - name: Inspect application
-        run: |
-          set -e
-
-          APP="${{ steps.app.outputs.app }}"
-
-          echo "Application: $APP"
-
-          echo ""
-          echo "Bundle ID:"
-
-          /usr/libexec/PlistBuddy \
-            -c "Print :CFBundleIdentifier" \
-            "$APP/Info.plist"
-
-          echo ""
-          echo "Application size:"
-          du -sh "$APP"
-
-      - name: Create unsigned IPA
-        run: |
-          set -e
-
-          APP="${{ steps.app.outputs.app }}"
-
-          rm -rf build
-          mkdir -p build/Payload
-
-          cp -R "$APP" build/Payload/
-
-          cd build
-
-          /usr/bin/zip \
-            -qry \
-            ibaal3105-unsigned.ipa \
-            Payload
-
-          echo ""
-          echo "=============================="
-          echo "UNSIGNED IPA CREATED"
-          echo "=============================="
-
-          ls -lh ibaal3105-unsigned.ipa
-
-      - name: Verify IPA
-        run: |
-          set -e
-
-          unzip -l build/ibaal3105-unsigned.ipa
-
-      - name: Upload unsigned IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: ibaal3105-unsigned
-          path: ibaal3105/build/ibaal3105-unsigned.ipa
-          if-no-files-found: error
-
-      - name: Upload build diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ibaal3105-build-diagnostics
-          path: |
-            ibaal3105/build/
-          if-no-files-found: ignore
+            -showBuildSettings \
+            | grep -E \
+              '(^| )TARGET_NAME =|PRODUCT_NAME =|FULL_PRODUCT_NAME =|PRODUCT_TYPE =|WRAPPER_EXTENSION =|TARGET_BUILD_DIR =|CONFIGURATION_BUILD_DIR =' \
+            || true
