@@ -1,4 +1,3 @@
-
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -30,6 +29,7 @@ enum IbaalPlistValueType: String, CaseIterable, Identifiable {
 
 final class IbaalPlistNode: Identifiable, ObservableObject {
     let id = UUID()
+
     @Published var key: String
     @Published var type: IbaalPlistValueType
     @Published var value: String
@@ -56,43 +56,80 @@ final class IbaalPlistNode: Identifiable, ObservableObject {
 
     var displayValue: String {
         switch type {
-        case .boolean: return boolValue ? "YES" : "NO"
-        case .dictionary: return "\(children.count) item" + (children.count == 1 ? "" : "s")
-        case .array: return "\(children.count) item" + (children.count == 1 ? "" : "s")
-        default: return value.isEmpty ? "—" : value
+        case .boolean:
+            return boolValue ? "YES" : "NO"
+
+        case .dictionary:
+            return "\(children.count) item" +
+                (children.count == 1 ? "" : "s")
+
+        case .array:
+            return "\(children.count) item" +
+                (children.count == 1 ? "" : "s")
+
+        default:
+            return value.isEmpty ? "—" : value
         }
     }
 
     func foundationValue() -> Any {
         switch type {
+
         case .string:
             return value
+
         case .boolean:
             return boolValue
+
         case .number:
-            if let int = Int(value) { return NSNumber(value: int) }
-            if let double = Double(value) { return NSNumber(value: double) }
+            if let int = Int(value) {
+                return NSNumber(value: int)
+            }
+
+            if let double = Double(value) {
+                return NSNumber(value: double)
+            }
+
             return NSNumber(value: 0)
+
         case .data:
             return Data(base64Encoded: value) ?? Data()
+
         case .date:
-            if let date = ISO8601DateFormatter().date(from: value) { return date }
+            if let date = ISO8601DateFormatter().date(from: value) {
+                return date
+            }
+
             return Date(timeIntervalSince1970: 0)
+
         case .dictionary:
             var dict: [String: Any] = [:]
-            for child in children { dict[child.key] = child.foundationValue() }
+
+            for child in children {
+                dict[child.key] = child.foundationValue()
+            }
+
             return dict
+
         case .array:
-            return children.map { $0.foundationValue() }
+            return children.map {
+                $0.foundationValue()
+            }
         }
     }
 
-    static func from(_ object: Any, key: String) -> IbaalPlistNode {
+    static func from(
+        _ object: Any,
+        key: String
+    ) -> IbaalPlistNode {
+
         if let dict = object as? [String: Any] {
             return IbaalPlistNode(
                 key: key,
                 type: .dictionary,
-                children: dict.keys.sorted().map { from(dict[$0]!, key: $0) }
+                children: dict.keys.sorted().map {
+                    from(dict[$0]!, key: $0)
+                }
             )
         }
 
@@ -100,20 +137,37 @@ final class IbaalPlistNode: Identifiable, ObservableObject {
             return IbaalPlistNode(
                 key: key,
                 type: .array,
-                children: array.enumerated().map { from($0.element, key: String($0.offset)) }
+                children: array.enumerated().map {
+                    from(
+                        $0.element,
+                        key: String($0.offset)
+                    )
+                }
             )
         }
 
         if let value = object as? Bool {
-            return IbaalPlistNode(key: key, type: .boolean, boolValue: value)
+            return IbaalPlistNode(
+                key: key,
+                type: .boolean,
+                boolValue: value
+            )
         }
 
         if let value = object as? String {
-            return IbaalPlistNode(key: key, type: .string, value: value)
+            return IbaalPlistNode(
+                key: key,
+                type: .string,
+                value: value
+            )
         }
 
         if let value = object as? Data {
-            return IbaalPlistNode(key: key, type: .data, value: value.base64EncodedString())
+            return IbaalPlistNode(
+                key: key,
+                type: .data,
+                value: value.base64EncodedString()
+            )
         }
 
         if let value = object as? Date {
@@ -125,14 +179,25 @@ final class IbaalPlistNode: Identifiable, ObservableObject {
         }
 
         if let value = object as? NSNumber {
-            return IbaalPlistNode(key: key, type: .number, value: value.stringValue)
+            return IbaalPlistNode(
+                key: key,
+                type: .number,
+                value: value.stringValue
+            )
         }
 
-        return IbaalPlistNode(key: key, type: .string, value: String(describing: object))
+        return IbaalPlistNode(
+            key: key,
+            type: .string,
+            value: String(describing: object)
+        )
     }
 }
 
+// MARK: - Editor Model
+
 final class IbaalPlistEditorModel: ObservableObject {
+
     @Published var root: IbaalPlistNode?
     @Published var fileURL: URL?
     @Published var originalBytes: Int64 = 0
@@ -141,92 +206,213 @@ final class IbaalPlistEditorModel: ObservableObject {
     @Published var showingError = false
     @Published var isBusy = false
 
-    let targetPath = "/var/db/com.apple.xpc.launchd/disable.plist"
+    private(set) var targetPath =
+        "/var/db/com.apple.xpc.launchd/disable.plist"
 
-    var difference: Int64 { editedBytes - originalBytes }
-    var canOverwrite: Bool {
-        root != nil && originalBytes > 0 && editedBytes > 0 && editedBytes <= originalBytes
+    var difference: Int64 {
+        editedBytes - originalBytes
     }
+
+    // Size is NOT a restriction anymore.
+    // Adding daemon entries is allowed.
+    var canOverwrite: Bool {
+        root != nil &&
+        originalBytes > 0 &&
+        editedBytes > 0 &&
+        !isBusy
+    }
+
+    // MARK: - Target
 
     func openTarget() {
-        open(URL(fileURLWithPath: targetPath))
-    }
-
-    func open(_ url: URL) {
-        isBusy = true
-        defer { isBusy = false }
 
         do {
-            let data = try Data(contentsOf: url)
-            guard let object = try PropertyListSerialization.propertyList(
-                from: data,
-                options: [],
-                format: nil
-            ) as Any? else {
-                throw IbaalPlistError.invalidPlist
-            }
+            let url = try SystemPlistOverwrite.targetURL()
 
-            root = IbaalPlistNode.from(object, key: "Root")
-            fileURL = url
-            originalBytes = Int64(data.count)
-            editedBytes = Int64(data.count)
-            message = "Loaded \(url.lastPathComponent)"
+            targetPath = url.path
+
+            open(url)
+
         } catch {
+
             root = nil
             fileURL = nil
             originalBytes = 0
             editedBytes = 0
-            message = "Unable to open \(url.path): \(error.localizedDescription)"
+
+            message = error.localizedDescription
             showingError = true
+
+            log(
+                "plist: unable to locate target: " +
+                error.localizedDescription
+            )
         }
     }
 
-    func refreshSize() {
-        guard let root else { return }
+    // MARK: - Open
+
+    func open(_ url: URL) {
+
+        isBusy = true
+
+        defer {
+            isBusy = false
+        }
+
         do {
-            let data = try serialize(root)
+
+            let data = try Data(
+                contentsOf: url,
+                options: .mappedIfSafe
+            )
+
+            let object = try PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+            )
+
+            root = IbaalPlistNode.from(
+                object,
+                key: "Root"
+            )
+
+            fileURL = url
+
+            originalBytes = Int64(data.count)
             editedBytes = Int64(data.count)
+
+            message = "Loaded \(url.lastPathComponent)"
+
+            log(
+                "plist: loaded \(url.path)"
+            )
+
         } catch {
+
+            root = nil
+            fileURL = nil
+
+            originalBytes = 0
+            editedBytes = 0
+
+            message =
+                "Unable to open \(url.path): " +
+                error.localizedDescription
+
+            showingError = true
+
+            log(
+                "plist: open failed: " +
+                error.localizedDescription
+            )
+        }
+    }
+
+    // MARK: - Refresh Size
+
+    func refreshSize() {
+
+        guard let root else {
+            return
+        }
+
+        do {
+
+            let data = try serialize(root)
+
+            editedBytes = Int64(data.count)
+
+        } catch {
+
             editedBytes = 0
         }
     }
 
-    func overwrite() {
-        guard let url = fileURL, let root else { return }
-        do {
-            let data = try serialize(root)
-            guard Int64(data.count) <= originalBytes else {
-                throw IbaalPlistError.editedFileLarger
-            }
+    // MARK: - Strict Overwrite
 
-            // Best-effort backup next to the original. The backup is only created
-            // after the final serialized size has passed validation.
-            let backupURL = url.deletingPathExtension()
-                .appendingPathExtension(url.pathExtension + ".ibaal.bak")
-            if FileManager.default.fileExists(atPath: backupURL.path) {
-                try? FileManager.default.removeItem(at: backupURL)
-            }
-            try dataForBackup(url).write(to: backupURL, options: .atomic)
-            try data.write(to: url, options: .atomic)
+    func overwrite() {
+
+        guard let root else {
+            return
+        }
+
+        isBusy = true
+
+        defer {
+            isBusy = false
+        }
+
+        do {
+
+            log(
+                "plist: serializing edited tree"
+            )
+
+            let data = try serialize(root)
+
+            editedBytes = Int64(data.count)
+
+            log(
+                "plist: validating edited plist"
+            )
+
+            try SystemPlistOverwrite.validate(
+                data
+            )
+
+            log(
+                "plist: starting strict overwrite"
+            )
+
+            try SystemPlistOverwrite.overwrite(
+                data: data
+            )
+
+            let targetURL =
+                try SystemPlistOverwrite.targetURL()
+
+            fileURL = targetURL
+            targetPath = targetURL.path
 
             originalBytes = Int64(data.count)
             editedBytes = Int64(data.count)
-            message = "Overwrite complete. Backup: \(backupURL.lastPathComponent)"
+
+            message =
+                "Overwrite complete. Verification successful."
+
+            log(
+                "plist: overwrite complete"
+            )
+
         } catch {
+
             message = error.localizedDescription
             showingError = true
+
+            log(
+                "plist: overwrite failed: " +
+                error.localizedDescription
+            )
         }
     }
 
-    private func dataForBackup(_ url: URL) throws -> Data {
-        try Data(contentsOf: url)
-    }
+    // MARK: - Serialize
 
-    private func serialize(_ root: IbaalPlistNode) throws -> Data {
+    private func serialize(
+        _ root: IbaalPlistNode
+    ) throws -> Data {
+
         let object = root.foundationValue()
-        guard PropertyListSerialization.propertyList(object, isValidFor: .binary) else {
+
+        guard PropertyListSerialization.propertyList(
+            object,
+            isValidFor: .binary
+        ) else {
             throw IbaalPlistError.invalidPlist
         }
+
         return try PropertyListSerialization.data(
             fromPropertyList: object,
             format: .binary,
@@ -235,14 +421,18 @@ final class IbaalPlistEditorModel: ObservableObject {
     }
 }
 
+// MARK: - Errors
+
 enum IbaalPlistError: LocalizedError {
+
     case invalidPlist
-    case editedFileLarger
 
     var errorDescription: String? {
+
         switch self {
-        case .invalidPlist: return "The selected file is not a valid property list."
-        case .editedFileLarger: return "The edited plist is larger than the original. Overwrite is blocked."
+
+        case .invalidPlist:
+            return "The selected file is not a valid property list."
         }
     }
 }
@@ -250,197 +440,457 @@ enum IbaalPlistError: LocalizedError {
 // MARK: - UI
 
 struct IbaalPlistEditorView: View {
-    @StateObject private var model = IbaalPlistEditorModel()
+
+    @StateObject private var model =
+        IbaalPlistEditorModel()
+
     @State private var search = ""
     @State private var showPicker = false
     @State private var showAdd = false
-    @State private var selectedNode: IbaalPlistNode?
-    @State private var addParent: IbaalPlistNode?
+    @State private var selectedNode:
+        IbaalPlistNode?
+    @State private var addParent:
+        IbaalPlistNode?
 
     var body: some View {
+
         NavigationStack {
+
             List {
+
                 targetSection
+
                 if let root = model.root {
+
                     Section {
+
                         IbaalPlistNodeView(
                             node: root,
                             search: search,
-                            onEdit: { selectedNode = $0 },
-                            onDelete: { delete($0, from: root) },
-                            onAdd: { addParent = $0 }
+                            onEdit: {
+                                selectedNode = $0
+                            },
+                            onDelete: {
+                                delete($0, from: root)
+                            },
+                            onAdd: {
+                                addParent = $0
+                            }
                         )
+
                     } header: {
+
                         Text("Plist")
                     }
+
                 } else {
+
                     VStack(spacing: 10) {
-                        Image(systemName: "doc.badge.gearshape")
-                            .font(.system(size: 34))
-                            .foregroundStyle(AppTheme.accent)
+
+                        Image(
+                            systemName:
+                                "doc.badge.gearshape"
+                        )
+                        .font(.system(size: 34))
+                        .foregroundStyle(
+                            AppTheme.accent
+                        )
+
                         Text("No Plist Loaded")
                             .font(.headline)
-                        Text("Open the target plist or choose a local copy.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+
+                        Text(
+                            "Open the target plist or " +
+                            "choose a local copy."
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(
+                            .center
+                        )
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
                 }
             }
-            .searchable(text: $search, prompt: "Search keys and values")
+
+            .searchable(
+                text: $search,
+                prompt: "Search keys and values"
+            )
+
             .navigationTitle("Plist Editor")
+
             .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
+
+                ToolbarItemGroup(
+                    placement:
+                        .navigationBarTrailing
+                ) {
+
                     Button {
+
                         showPicker = true
+
                     } label: {
-                        Image(systemName: "folder")
+
+                        Image(
+                            systemName: "folder"
+                        )
                     }
+
                     Button {
+
                         addParent = model.root
+
                     } label: {
-                        Image(systemName: "plus")
+
+                        Image(
+                            systemName: "plus"
+                        )
                     }
-                    .disabled(model.root == nil)
+                    .disabled(
+                        model.root == nil
+                    )
                 }
             }
-            .sheet(isPresented: $showPicker) {
+
+            .sheet(
+                isPresented: $showPicker
+            ) {
+
                 IbaalDocumentPicker { url in
                     model.open(url)
                 }
             }
-            .sheet(item: $selectedNode) { node in
-                IbaalPlistEditSheet(node: node) {
+
+            .sheet(
+                item: $selectedNode
+            ) { node in
+
+                IbaalPlistEditSheet(
+                    node: node
+                ) {
+
                     model.refreshSize()
                 }
             }
-            .sheet(item: $addParent) { parent in
-                IbaalPlistAddSheet(parent: parent) {
+
+            .sheet(
+                item: $addParent
+            ) { parent in
+
+                IbaalPlistAddSheet(
+                    parent: parent
+                ) {
+
                     model.refreshSize()
                 }
             }
-            .alert("Plist Editor", isPresented: $model.showingError) {
-                Button("OK", role: .cancel) {}
+
+            .alert(
+                "Plist Editor",
+                isPresented:
+                    $model.showingError
+            ) {
+
+                Button(
+                    "OK",
+                    role: .cancel
+                ) {}
+
             } message: {
-                Text(model.message ?? "Unknown error")
+
+                Text(
+                    model.message ??
+                    "Unknown error"
+                )
             }
-            .safeAreaInset(edge: .bottom) {
+
+            .safeAreaInset(
+                edge: .bottom
+            ) {
+
                 validationBar
             }
-            .onChange(of: search) { _ in }
+
+            .onChange(
+                of: search
+            ) { _ in }
         }
     }
+
+    // MARK: - Target Section
 
     private var targetSection: some View {
+
         Section("System Target") {
+
             HStack {
-                Image(systemName: "target")
-                    .foregroundStyle(AppTheme.accent)
-                VStack(alignment: .leading, spacing: 3) {
+
+                Image(
+                    systemName: "target"
+                )
+                .foregroundStyle(
+                    AppTheme.accent
+                )
+
+                VStack(
+                    alignment: .leading,
+                    spacing: 3
+                ) {
+
                     Text("disable.plist")
                         .font(.headline)
-                    Text(model.fileURL?.path ?? model.targetPath)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+
+                    Text(
+                        model.fileURL?.path ??
+                        model.targetPath
+                    )
+                    .font(
+                        .caption.monospaced()
+                    )
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
                 }
             }
 
             HStack {
+
                 Button("Open Target") {
+
                     model.openTarget()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(
+                    .borderedProminent
+                )
 
                 Button("Choose File") {
+
                     showPicker = true
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(
+                    .bordered
+                )
             }
         }
     }
 
+    // MARK: - Validation Bar
+
     private var validationBar: some View {
+
         VStack(spacing: 8) {
+
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Original \(formatBytes(model.originalBytes))")
-                    Text("Edited \(formatBytes(model.editedBytes))")
+
+                VStack(
+                    alignment: .leading,
+                    spacing: 2
+                ) {
+
+                    Text(
+                        "Original " +
+                        formatBytes(
+                            model.originalBytes
+                        )
+                    )
+
+                    Text(
+                        "Edited " +
+                        formatBytes(
+                            model.editedBytes
+                        )
+                    )
                 }
-                .font(.caption.monospaced())
+                .font(
+                    .caption.monospaced()
+                )
+
                 Spacer()
+
                 Text(statusText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(model.canOverwrite ? AppTheme.accent : .secondary)
+                    .font(
+                        .caption.weight(
+                            .semibold
+                        )
+                    )
+                    .foregroundStyle(
+                        model.canOverwrite
+                        ? AppTheme.accent
+                        : .secondary
+                    )
             }
 
             Button {
+
                 model.overwrite()
+
             } label: {
+
                 Label(
-                    model.canOverwrite ? "Overwrite" : "Overwrite Unavailable",
-                    systemImage: model.canOverwrite ? "arrow.down.doc" : "lock"
+                    model.canOverwrite
+                    ? "Overwrite"
+                    : "Overwrite Unavailable",
+
+                    systemImage:
+                        model.canOverwrite
+                        ? "arrow.down.doc"
+                        : "lock"
                 )
-                .frame(maxWidth: .infinity)
+                .frame(
+                    maxWidth: .infinity
+                )
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canOverwrite)
+
+            .buttonStyle(
+                .borderedProminent
+            )
+
+            .disabled(
+                !model.canOverwrite
+            )
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+
+        .padding(
+            .horizontal,
+            16
+        )
+
+        .padding(
+            .vertical,
+            10
+        )
+
         .background(.bar)
     }
 
+    // MARK: - Status
+
     private var statusText: String {
-        guard model.originalBytes > 0, model.editedBytes > 0 else { return "No size" }
-        if model.editedBytes <= model.originalBytes {
-            return "✓ Safe"
+
+        guard
+            model.originalBytes > 0,
+            model.editedBytes > 0
+        else {
+            return "No size"
         }
-        return "⚠ Larger than original"
+
+        if model.editedBytes <=
+            model.originalBytes {
+
+            return "✓ Ready"
+        }
+
+        return "✓ Larger edit allowed"
     }
 
-    private func formatBytes(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    // MARK: - Formatting
+
+    private func formatBytes(
+        _ bytes: Int64
+    ) -> String {
+
+        ByteCountFormatter.string(
+            fromByteCount: bytes,
+            countStyle: .file
+        )
     }
 
-    private func delete(_ node: IbaalPlistNode, from root: IbaalPlistNode) {
-        guard node.id != root.id else { return }
-        func remove(_ parent: IbaalPlistNode) -> Bool {
-            if let index = parent.children.firstIndex(where: { $0.id == node.id }) {
-                parent.children.remove(at: index)
+    // MARK: - Delete
+
+    private func delete(
+        _ node: IbaalPlistNode,
+        from root: IbaalPlistNode
+    ) {
+
+        guard node.id != root.id else {
+            return
+        }
+
+        func remove(
+            _ parent: IbaalPlistNode
+        ) -> Bool {
+
+            if let index =
+                parent.children.firstIndex(
+                    where: {
+                        $0.id == node.id
+                    }
+                ) {
+
+                parent.children.remove(
+                    at: index
+                )
+
                 return true
             }
-            for child in parent.children where child.isContainer {
-                if remove(child) { return true }
+
+            for child in parent.children
+                where child.isContainer {
+
+                if remove(child) {
+                    return true
+                }
             }
+
             return false
         }
+
         _ = remove(root)
+
         model.refreshSize()
     }
 }
 
-private struct IbaalPlistNodeView: View {
-    @ObservedObject var node: IbaalPlistNode
-    let search: String
-    let onEdit: (IbaalPlistNode) -> Void
-    let onDelete: (IbaalPlistNode) -> Void
-    let onAdd: (IbaalPlistNode) -> Void
+// MARK: - Node View
 
-    private var visibleChildren: [IbaalPlistNode] {
-        guard !search.isEmpty else { return node.children }
+private struct IbaalPlistNodeView: View {
+
+    @ObservedObject var node:
+        IbaalPlistNode
+
+    let search: String
+
+    let onEdit:
+        (IbaalPlistNode) -> Void
+
+    let onDelete:
+        (IbaalPlistNode) -> Void
+
+    let onAdd:
+        (IbaalPlistNode) -> Void
+
+    private var visibleChildren:
+        [IbaalPlistNode] {
+
+        guard !search.isEmpty else {
+            return node.children
+        }
+
         return node.children.filter {
-            $0.key.localizedCaseInsensitiveContains(search)
-            || $0.displayValue.localizedCaseInsensitiveContains(search)
+
+            $0.key.localizedCaseInsensitiveContains(
+                search
+            )
+            ||
+            $0.displayValue
+                .localizedCaseInsensitiveContains(
+                    search
+                )
         }
     }
 
     var body: some View {
+
         if node.isContainer {
+
             DisclosureGroup {
-                ForEach(visibleChildren) { child in
+
+                ForEach(
+                    visibleChildren
+                ) { child in
+
                     IbaalPlistNodeView(
                         node: child,
                         search: search,
@@ -449,174 +899,443 @@ private struct IbaalPlistNodeView: View {
                         onAdd: onAdd
                     )
                 }
+
             } label: {
+
                 nodeLabel
             }
+
             .contextMenu {
-                Button("Add Child") { onAdd(node) }
-                Button("Edit") { onEdit(node) }
+
+                Button("Add Child") {
+                    onAdd(node)
+                }
+
+                Button("Edit") {
+                    onEdit(node)
+                }
+
                 if node.key != "Root" {
-                    Button("Delete", role: .destructive) { onDelete(node) }
+
+                    Button(
+                        "Delete",
+                        role: .destructive
+                    ) {
+                        onDelete(node)
+                    }
                 }
             }
+
         } else {
+
             nodeLabel
+
                 .contextMenu {
-                    Button("Edit") { onEdit(node) }
-                    Button("Delete", role: .destructive) { onDelete(node) }
+
+                    Button("Edit") {
+                        onEdit(node)
+                    }
+
+                    Button(
+                        "Delete",
+                        role: .destructive
+                    ) {
+                        onDelete(node)
+                    }
                 }
         }
     }
 
     private var nodeLabel: some View {
+
         HStack(spacing: 9) {
-            Image(systemName: node.type.symbol)
-                .foregroundStyle(AppTheme.accent)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
+
+            Image(
+                systemName:
+                    node.type.symbol
+            )
+            .foregroundStyle(
+                AppTheme.accent
+            )
+            .frame(width: 22)
+
+            VStack(
+                alignment: .leading,
+                spacing: 2
+            ) {
+
                 Text(node.key)
                     .lineLimit(1)
-                Text(node.type == .boolean ? "Boolean • \(node.displayValue)" : "\(node.type.rawValue) • \(node.displayValue)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+
+                Text(
+                    node.type == .boolean
+                    ? "Boolean • " +
+                        node.displayValue
+                    : node.type.rawValue +
+                        " • " +
+                        node.displayValue
+                )
+                .font(.caption)
+                .foregroundStyle(
+                    .secondary
+                )
+                .lineLimit(1)
             }
+
             Spacer()
+
             if node.type == .boolean {
-                Text(node.boolValue ? "YES" : "NO")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(node.boolValue ? AppTheme.accent : .secondary)
+
+                Text(
+                    node.boolValue
+                    ? "YES"
+                    : "NO"
+                )
+                .font(
+                    .caption.weight(
+                        .semibold
+                    )
+                )
+                .foregroundStyle(
+                    node.boolValue
+                    ? AppTheme.accent
+                    : .secondary
+                )
             }
         }
-        .contentShape(Rectangle())
+
+        .contentShape(
+            Rectangle()
+        )
     }
 }
 
+// MARK: - Edit Sheet
+
 private struct IbaalPlistEditSheet: View {
-    @ObservedObject var node: IbaalPlistNode
+
+    @ObservedObject var node:
+        IbaalPlistNode
+
     let onSave: () -> Void
-    @Environment(\.dismiss) private var dismiss
+
+    @Environment(
+        \.dismiss
+    ) private var dismiss
+
     @State private var text = ""
     @State private var bool = false
 
     var body: some View {
+
         NavigationStack {
+
             Form {
+
                 Section("Key") {
-                    TextField("Key", text: $node.key)
+
+                    TextField(
+                        "Key",
+                        text: $node.key
+                    )
                 }
+
                 if node.type == .boolean {
-                    Toggle("Boolean", isOn: $node.boolValue)
+
+                    Toggle(
+                        "Boolean",
+                        isOn: $node.boolValue
+                    )
+
                 } else if !node.isContainer {
+
                     Section("Value") {
-                        TextField("Value", text: $node.value, axis: .vertical)
-                            .lineLimit(3...8)
+
+                        TextField(
+                            "Value",
+                            text: $node.value,
+                            axis: .vertical
+                        )
+                        .lineLimit(3...8)
                     }
+
                 } else {
+
                     Section {
-                        Text("\(node.children.count) children")
-                            .foregroundStyle(.secondary)
+
+                        Text(
+                            "\(node.children.count) children"
+                        )
+                        .foregroundStyle(
+                            .secondary
+                        )
                     }
                 }
             }
+
             .navigationTitle("Edit")
-            .navigationBarTitleDisplayMode(.inline)
+
+            .navigationBarTitleDisplayMode(
+                .inline
+            )
+
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        onSave()
+
+                ToolbarItem(
+                    placement:
+                        .navigationBarLeading
+                ) {
+
+                    Button("Cancel") {
                         dismiss()
                     }
-                    .fontWeight(.semibold)
+                }
+
+                ToolbarItem(
+                    placement:
+                        .navigationBarTrailing
+                ) {
+
+                    Button("Done") {
+
+                        onSave()
+
+                        dismiss()
+                    }
+                    .fontWeight(
+                        .semibold
+                    )
                 }
             }
         }
     }
 }
+
+// MARK: - Add Sheet
 
 private struct IbaalPlistAddSheet: View {
-    @ObservedObject var parent: IbaalPlistNode
+
+    @ObservedObject var parent:
+        IbaalPlistNode
+
     let onSave: () -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var key = "NewItem"
-    @State private var type: IbaalPlistValueType = .boolean
+
+    @Environment(
+        \.dismiss
+    ) private var dismiss
+
+    @State private var key =
+        "NewItem"
+
+    @State private var type:
+        IbaalPlistValueType =
+        .boolean
+
     @State private var value = ""
-    @State private var boolValue = true
+
+    @State private var boolValue =
+        true
 
     var body: some View {
+
         NavigationStack {
+
             Form {
+
                 Section("New Item") {
-                    TextField("Key", text: $key)
-                    Picker("Type", selection: $type) {
-                        ForEach(IbaalPlistValueType.allCases) { type in
-                            Text(type.rawValue).tag(type)
+
+                    TextField(
+                        "Key",
+                        text: $key
+                    )
+
+                    Picker(
+                        "Type",
+                        selection: $type
+                    ) {
+
+                        ForEach(
+                            IbaalPlistValueType.allCases
+                        ) { type in
+
+                            Text(
+                                type.rawValue
+                            )
+                            .tag(type)
                         }
                     }
+
                     if type == .boolean {
-                        Toggle("Value", isOn: $boolValue)
-                    } else if type == .dictionary || type == .array {
-                        Text("An empty \(type.rawValue.lowercased()) will be created.")
-                            .foregroundStyle(.secondary)
+
+                        Toggle(
+                            "Value",
+                            isOn: $boolValue
+                        )
+
+                    } else if type ==
+                        .dictionary ||
+                        type == .array {
+
+                        Text(
+                            "An empty " +
+                            type.rawValue
+                                .lowercased() +
+                            " will be created."
+                        )
+                        .foregroundStyle(
+                            .secondary
+                        )
+
                     } else {
-                        TextField("Value", text: $value, axis: .vertical)
+
+                        TextField(
+                            "Value",
+                            text: $value,
+                            axis: .vertical
+                        )
                     }
                 }
             }
+
             .navigationTitle("Add Item")
-            .navigationBarTitleDisplayMode(.inline)
+
+            .navigationBarTitleDisplayMode(
+                .inline
+            )
+
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Add") {
-                        let node = IbaalPlistNode(
-                            key: parent.type == .array ? String(parent.children.count) : key,
-                            type: type,
-                            value: value,
-                            boolValue: boolValue
-                        )
-                        parent.children.append(node)
-                        onSave()
+
+                ToolbarItem(
+                    placement:
+                        .navigationBarLeading
+                ) {
+
+                    Button("Cancel") {
                         dismiss()
                     }
-                    .fontWeight(.semibold)
-                    .disabled(parent.type == .dictionary && key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                ToolbarItem(
+                    placement:
+                        .navigationBarTrailing
+                ) {
+
+                    Button("Add") {
+
+                        let node =
+                            IbaalPlistNode(
+                                key:
+                                    parent.type ==
+                                    .array
+                                    ? String(
+                                        parent.children.count
+                                    )
+                                    : key,
+
+                                type: type,
+
+                                value: value,
+
+                                boolValue:
+                                    boolValue
+                            )
+
+                        parent.children.append(
+                            node
+                        )
+
+                        onSave()
+
+                        dismiss()
+                    }
+
+                    .fontWeight(
+                        .semibold
+                    )
+
+                    .disabled(
+                        parent.type ==
+                        .dictionary &&
+                        key.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                    )
                 }
             }
         }
     }
 }
 
-private struct IbaalDocumentPicker: UIViewControllerRepresentable {
-    let onPick: (URL) -> Void
+// MARK: - Document Picker
+
+private struct IbaalDocumentPicker:
+    UIViewControllerRepresentable {
+
+    let onPick:
+        (URL) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPick: onPick)
+        Coordinator(
+            onPick: onPick
+        )
     }
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let controller = UIDocumentPickerViewController(
-            forOpeningContentTypes: [UTType.propertyList, UTType.data],
-            asCopy: true
-        )
-        controller.allowsMultipleSelection = false
-        controller.delegate = context.coordinator
+    func makeUIViewController(
+        context: Context
+    ) -> UIDocumentPickerViewController {
+
+        let controller =
+            UIDocumentPickerViewController(
+                forOpeningContentTypes: [
+                    UTType.propertyList,
+                    UTType.data
+                ],
+                asCopy: true
+            )
+
+        controller.allowsMultipleSelection =
+            false
+
+        controller.delegate =
+            context.coordinator
+
         return controller
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(
+        _ uiViewController:
+            UIDocumentPickerViewController,
+        context: Context
+    ) {}
 
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
-        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+    final class Coordinator:
+        NSObject,
+        UIDocumentPickerDelegate {
 
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
+        let onPick:
+            (URL) -> Void
+
+        init(
+            onPick:
+                @escaping (URL) -> Void
+        ) {
+
+            self.onPick = onPick
+        }
+
+        func documentPicker(
+            _ controller:
+                UIDocumentPickerViewController,
+            didPickDocumentsAt urls:
+                [URL]
+        ) {
+
+            guard let url =
+                urls.first
+            else {
+                return
+            }
+
             onPick(url)
         }
     }
