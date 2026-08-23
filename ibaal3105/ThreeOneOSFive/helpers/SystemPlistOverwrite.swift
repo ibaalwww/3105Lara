@@ -3,7 +3,6 @@ import Foundation
 enum SystemPlistOverwriteError: LocalizedError {
     case invalidPlist
     case invalidStructure
-    case invalidDaemonValue(String)
     case targetNotFound
     case writeFailed
     case verificationFailed
@@ -11,11 +10,9 @@ enum SystemPlistOverwriteError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidPlist:
-            return "The selected file is not a valid plist."
+            return "The plist is not valid."
         case .invalidStructure:
             return "The plist root must be a dictionary."
-        case .invalidDaemonValue(let key):
-            return "Invalid value for daemon: \(key)"
         case .targetNotFound:
             return "System disable.plist target was not found."
         case .writeFailed:
@@ -29,11 +26,11 @@ enum SystemPlistOverwriteError: LocalizedError {
 enum SystemPlistOverwrite {
 
     private static let targetPaths = [
-        "/var/db/com.apple.xpc.launchd/disabled.plist",
-        "/var/db/com.apple.xpc.launchd/disable.plist"
+        "/var/db/com.apple.xpc.launchd/disable.plist",
+        "/var/db/com.apple.xpc.launchd/disabled.plist"
     ]
 
-    // MARK: - Target Detection
+    // MARK: - Target
 
     static func targetURL() throws -> URL {
         let fm = FileManager.default
@@ -49,11 +46,24 @@ enum SystemPlistOverwrite {
         throw SystemPlistOverwriteError.targetNotFound
     }
 
-    // MARK: - Strict Plist Parser
+    // MARK: - Read
 
-    private static func parse(
-        _ data: Data
-    ) throws -> [String: Any] {
+    static func readTarget() throws -> Data {
+        let url = try targetURL()
+
+        do {
+            return try Data(
+                contentsOf: url,
+                options: .mappedIfSafe
+            )
+        } catch {
+            throw SystemPlistOverwriteError.invalidPlist
+        }
+    }
+
+    // MARK: - Validate
+
+    static func validate(_ data: Data) throws {
 
         guard !data.isEmpty else {
             throw SystemPlistOverwriteError.invalidPlist
@@ -71,67 +81,27 @@ enum SystemPlistOverwrite {
             throw SystemPlistOverwriteError.invalidPlist
         }
 
-        guard let dictionary = object as? [String: Any] else {
+        guard object is [String: Any] else {
             throw SystemPlistOverwriteError.invalidStructure
         }
 
-        for (key, value) in dictionary {
-
-            guard !key.isEmpty else {
-                throw SystemPlistOverwriteError.invalidStructure
-            }
-
-            guard value is Bool else {
-                throw SystemPlistOverwriteError.invalidDaemonValue(key)
-            }
-        }
-
-        return dictionary
-    }
-
-    // MARK: - Working Copy Validation
-
-    static func validate(
-        sourceURL: URL
-    ) throws -> Data {
-
-        let data: Data
-
-        do {
-            data = try Data(
-                contentsOf: sourceURL,
-                options: .mappedIfSafe
-            )
-        } catch {
+        guard PropertyListSerialization.propertyList(
+            object,
+            isValidFor: .binary
+        ) else {
             throw SystemPlistOverwriteError.invalidPlist
         }
-
-        _ = try parse(data)
-
-        return data
     }
 
     // MARK: - Strict Overwrite
 
-    static func overwrite(
-        sourceURL: URL
-    ) throws {
+    static func overwrite(data: Data) throws {
 
-        log("plist: validating working copy")
-
-        let sourceData = try validate(
-            sourceURL: sourceURL
-        )
-
-        let sourceDictionary = try parse(
-            sourceData
-        )
+        try validate(data)
 
         let targetURL = try targetURL()
-
-        log("plist: target = \(targetURL.path)")
-
         let fm = FileManager.default
+
         let directory = targetURL.deletingLastPathComponent()
 
         let temporaryURL = directory.appendingPathComponent(
@@ -142,11 +112,12 @@ enum SystemPlistOverwrite {
             try? fm.removeItem(at: temporaryURL)
         }
 
-        // Write temporary file.
-        log("plist: writing temporary file")
+        log("plist: target = \(targetURL.path)")
+        log("plist: validating edited data")
 
+        // Write staging file.
         do {
-            try sourceData.write(
+            try data.write(
                 to: temporaryURL,
                 options: [.atomic]
             )
@@ -154,11 +125,11 @@ enum SystemPlistOverwrite {
             throw SystemPlistOverwriteError.writeFailed
         }
 
-        // Validate temporary file.
-        let temporaryData: Data
+        // Validate staging file again.
+        let stagedData: Data
 
         do {
-            temporaryData = try Data(
+            stagedData = try Data(
                 contentsOf: temporaryURL,
                 options: .mappedIfSafe
             )
@@ -166,22 +137,14 @@ enum SystemPlistOverwrite {
             throw SystemPlistOverwriteError.writeFailed
         }
 
-        let temporaryDictionary = try parse(
-            temporaryData
-        )
-
-        guard NSDictionary(
-            dictionary: sourceDictionary
-        ).isEqual(
-            to: NSDictionary(
-                dictionary: temporaryDictionary
-            )
-        ) else {
-            throw SystemPlistOverwriteError.invalidPlist
+        do {
+            try validate(stagedData)
+        } catch {
+            throw SystemPlistOverwriteError.writeFailed
         }
 
         // Replace target.
-        log("plist: replacing system file")
+        log("plist: replacing target")
 
         do {
             _ = try fm.replaceItemAt(
@@ -194,8 +157,8 @@ enum SystemPlistOverwrite {
             throw SystemPlistOverwriteError.writeFailed
         }
 
-        // Read-back verification.
-        log("plist: verifying system file")
+        // Read back.
+        log("plist: verifying target")
 
         let resultData: Data
 
@@ -208,23 +171,13 @@ enum SystemPlistOverwrite {
             throw SystemPlistOverwriteError.verificationFailed
         }
 
-        let resultDictionary: [String: Any]
-
         do {
-            resultDictionary = try parse(
-                resultData
-            )
+            try validate(resultData)
         } catch {
             throw SystemPlistOverwriteError.verificationFailed
         }
 
-        guard NSDictionary(
-            dictionary: sourceDictionary
-        ).isEqual(
-            to: NSDictionary(
-                dictionary: resultDictionary
-            )
-        ) else {
+        guard resultData == data else {
             throw SystemPlistOverwriteError.verificationFailed
         }
 
