@@ -19,65 +19,55 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Xcode version
-        run: |
-          xcodebuild -version
-
-      - name: Inspect project
-        run: |
-          xcodebuild \
-            -list \
-            -project ThreeOneOSFive.xcodeproj
+        run: xcodebuild -version
 
       - name: Build unsigned app
         run: |
           set -e
+
+          rm -rf build
 
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build \
+            || {
+              echo "::error::xcodebuild failed"
+              exit 1
+            }
 
-      - name: Locate build output
-        id: output
+      - name: Locate application
+        id: app
         shell: bash
         run: |
           set -e
 
-          echo "Reading Xcode build settings..."
+          ROOT="$PWD/build/DerivedData"
 
-          SETTINGS=$(xcodebuild \
-            -project ThreeOneOSFive.xcodeproj \
-            -configuration Release \
-            -sdk iphoneos \
-            -showBuildSettings)
+          echo "Searching for iOS application..."
 
-          TARGET_DIR=$(echo "$SETTINGS" | \
-            awk -F ' = ' '/TARGET_BUILD_DIR/ {print $2; exit}')
+          APP=$(find "$ROOT" \
+            -type d \
+            -name "*.app" \
+            -path "*Build/Products/*-iphoneos/*.app" \
+            -print | head -n 1)
 
-          FULL_PRODUCT=$(echo "$SETTINGS" | \
-            awk -F ' = ' '/FULL_PRODUCT_NAME/ {print $2; exit}')
+          if [ -z "$APP" ]; then
+            echo "::error::No iOS .app found."
 
-          echo "TARGET_BUILD_DIR:"
-          echo "$TARGET_DIR"
+            echo "=== Build Products ==="
+            find "$ROOT" \
+              -type d \
+              -path "*Build/Products/*" \
+              -print || true
 
-          echo "FULL_PRODUCT_NAME:"
-          echo "$FULL_PRODUCT"
-
-          APP="$TARGET_DIR/$FULL_PRODUCT"
-
-          if [ ! -d "$APP" ]; then
-            echo "::error::Expected .app was not found."
-            echo "Expected:"
-            echo "$APP"
-
-            echo ""
-            echo "Searching fallback locations..."
-
-            find "$HOME/Library/Developer/Xcode/DerivedData" \
+            echo "=== All .app bundles ==="
+            find "$ROOT" \
               -type d \
               -name "*.app" \
               -print || true
@@ -85,9 +75,8 @@ jobs:
             exit 1
           fi
 
-          echo ""
           echo "================================"
-          echo "APP FOUND"
+          echo "FOUND APP"
           echo "================================"
           echo "$APP"
 
@@ -97,28 +86,27 @@ jobs:
         run: |
           set -e
 
-          APP="${{ steps.output.outputs.app }}"
+          APP="${{ steps.app.outputs.app }}"
 
-          echo "Application:"
-          echo "$APP"
+          echo "App: $APP"
 
           echo ""
-          echo "Info.plist:"
+          echo "Bundle ID:"
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             "$APP/Info.plist"
 
           echo ""
-          echo "Application size:"
+          echo "App size:"
           du -sh "$APP"
 
       - name: Create unsigned IPA
         run: |
           set -e
 
-          APP="${{ steps.output.outputs.app }}"
+          APP="${{ steps.app.outputs.app }}"
 
-          rm -rf build
+          rm -rf build/Payload
           mkdir -p build/Payload
 
           cp -R "$APP" build/Payload/
@@ -130,9 +118,8 @@ jobs:
             ibaal3105-unsigned.ipa \
             Payload
 
-          echo ""
           echo "================================"
-          echo "UNSIGNED IPA CREATED"
+          echo "IPA CREATED"
           echo "================================"
 
           ls -lh ibaal3105-unsigned.ipa
@@ -141,12 +128,9 @@ jobs:
         run: |
           set -e
 
-          echo "IPA contents:"
-          unzip -l build/ibaal3105-unsigned.ipa
+          cd build
 
-          echo ""
-          echo "IPA size:"
-          ls -lh build/ibaal3105-unsigned.ipa
+          unzip -l ibaal3105-unsigned.ipa
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -155,7 +139,7 @@ jobs:
           path: ibaal3105/build/ibaal3105-unsigned.ipa
           if-no-files-found: error
 
-      - name: Upload build archive
+      - name: Upload build directory
         uses: actions/upload-artifact@v4
         with:
           name: ibaal3105-build-output
