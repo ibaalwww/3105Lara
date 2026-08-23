@@ -25,11 +25,16 @@ enum PlistWorkingCopyError: LocalizedError {
 
 enum PlistWorkingCopyService {
 
+    // MARK: - Read
+
     static func read(_ url: URL) throws -> [String: Any] {
         let data: Data
 
         do {
-            data = try Data(contentsOf: url, options: .mappedIfSafe)
+            data = try Data(
+                contentsOf: url,
+                options: .mappedIfSafe
+            )
         } catch {
             throw PlistWorkingCopyError.unreadable
         }
@@ -37,16 +42,95 @@ enum PlistWorkingCopyService {
         return try parse(data)
     }
 
+    // MARK: - Validate
+
     static func validate(_ url: URL) throws {
         _ = try read(url)
     }
+
+    static func validate(data: Data) throws -> [String: Any] {
+        try parse(data)
+    }
+
+    // MARK: - Working Copy
 
     @discardableResult
     static func makeWorkingCopy(
         from sourceURL: URL
     ) throws -> URL {
 
-        let dictionary = try read(sourceURL)
+        let sourceDictionary = try read(sourceURL)
+
+        let data: Data
+
+        do {
+            data = try PropertyListSerialization.data(
+                fromPropertyList: sourceDictionary,
+                format: .xml,
+                options: 0
+            )
+        } catch {
+            throw PlistWorkingCopyError.invalidPlist
+        }
+
+        let caches = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        )[0]
+
+        let directory = caches.appendingPathComponent(
+            "ibaal3105-plist",
+            isDirectory: true
+        )
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw PlistWorkingCopyError.writeFailed
+        }
+
+        let workingURL = directory.appendingPathComponent(
+            "working-\(UUID().uuidString).plist"
+        )
+
+        do {
+            try data.write(
+                to: workingURL,
+                options: [.atomic]
+            )
+        } catch {
+            throw PlistWorkingCopyError.writeFailed
+        }
+
+        let verification = try read(workingURL)
+
+        guard dictionariesEqual(
+            sourceDictionary,
+            verification
+        ) else {
+            try? FileManager.default.removeItem(at: workingURL)
+            throw PlistWorkingCopyError.verificationFailed
+        }
+
+        log("plist: working copy created")
+        log("plist: \(workingURL.path)")
+
+        return workingURL
+    }
+
+    // MARK: - Write Edited Working Copy
+
+    static func write(
+        dictionary: [String: Any],
+        to url: URL
+    ) throws {
+
+        guard !dictionary.isEmpty || isValidEmptyDictionary(dictionary) else {
+            throw PlistWorkingCopyError.invalidRoot
+        }
 
         let data: Data
 
@@ -60,49 +144,25 @@ enum PlistWorkingCopyService {
             throw PlistWorkingCopyError.invalidPlist
         }
 
-        let directory = FileManager.default.urls(
-            for: .cachesDirectory,
-            in: .userDomainMask
-        )[0]
-
-        let workingDirectory = directory
-            .appendingPathComponent(
-                "ibaal3105-plist",
-                isDirectory: true
-            )
-
-        try? FileManager.default.createDirectory(
-            at: workingDirectory,
-            withIntermediateDirectories: true
-        )
-
-        let workingURL = workingDirectory
-            .appendingPathComponent(
-                "working-\(UUID().uuidString).plist"
-            )
-
         do {
             try data.write(
-                to: workingURL,
+                to: url,
                 options: [.atomic]
             )
         } catch {
             throw PlistWorkingCopyError.writeFailed
         }
 
-        let verification = try read(workingURL)
+        let result = try read(url)
 
-        guard NSDictionary(dictionary: dictionary).isEqual(
-            to: NSDictionary(dictionary: verification)
-        ) else {
+        guard dictionariesEqual(dictionary, result) else {
             throw PlistWorkingCopyError.verificationFailed
         }
 
-        log("plist: working copy created")
-        log("plist: \(workingURL.path)")
-
-        return workingURL
+        log("plist: working copy write verified")
     }
+
+    // MARK: - Parser
 
     private static func parse(
         _ data: Data
@@ -129,5 +189,23 @@ enum PlistWorkingCopyService {
         }
 
         return dictionary
+    }
+
+    // MARK: - Equality
+
+    private static func dictionariesEqual(
+        _ lhs: [String: Any],
+        _ rhs: [String: Any]
+    ) -> Bool {
+
+        NSDictionary(dictionary: lhs).isEqual(
+            to: NSDictionary(dictionary: rhs)
+        )
+    }
+
+    private static func isValidEmptyDictionary(
+        _ dictionary: [String: Any]
+    ) -> Bool {
+        dictionary.isEmpty
     }
 }
