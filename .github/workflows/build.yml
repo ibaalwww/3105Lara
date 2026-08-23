@@ -15,16 +15,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
+        shell: bash
         run: |
           sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
           xcodebuild -version
 
-      - name: Locate Xcode project
+      - name: Find Xcode project
         shell: bash
         run: |
-          echo "===== XCODE PROJECTS ====="
+          echo "=== XCODE PROJECTS ==="
           find . -maxdepth 6 -type d -name "*.xcodeproj" -print
-          echo "=========================="
+          echo "======================"
 
       - name: Build ibaal3105
         shell: bash
@@ -34,9 +35,9 @@ jobs:
           PROJECT="ibaal3105/ThreeOneOSFive.xcodeproj"
 
           if [ ! -d "$PROJECT" ]; then
-            echo "ERROR: Xcode project tidak ditemukan:"
+            echo "ERROR: Project tidak ditemukan:"
             echo "$PROJECT"
-            echo
+            echo ""
             echo "Project yang ditemukan:"
             find . -maxdepth 6 -type d -name "*.xcodeproj" -print
             exit 66
@@ -55,25 +56,29 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee build.log
 
-          status=${PIPESTATUS[0]}
+          STATUS=${PIPESTATUS[0]}
 
           echo ""
-          echo "===== ACTUAL COMPILER ERRORS ====="
+          echo "========================================"
+          echo "       ACTUAL COMPILER ERRORS"
+          echo "========================================"
 
           grep -nE \
             "error:|fatal error:|SwiftCompile|CompileSwift" \
             build.log \
-            | tail -100 \
-            || true
-
-          echo "===== END COMPILER ERRORS ====="
+            | tail -100 || true
 
           echo ""
-          echo "===== LAST BUILD LOG ====="
-          tail -200 build.log
-          echo "===== END BUILD LOG ====="
+          echo "========================================"
+          echo "          BUILD SUMMARY"
+          echo "========================================"
 
-          exit "$status"
+          tail -100 build.log
+
+          echo ""
+          echo "Build exit status: $STATUS"
+
+          exit "$STATUS"
 
       - name: Upload build log
         if: always()
