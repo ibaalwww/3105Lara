@@ -119,7 +119,6 @@ enum SystemPlistOverwrite {
 
         log("plist: validating working copy")
 
-        // 1. Read + strict validate working copy.
         let sourceData = try validate(
             sourceURL: sourceURL
         )
@@ -128,7 +127,6 @@ enum SystemPlistOverwrite {
             sourceData
         )
 
-        // 2. Find actual system target.
         let targetURL = try targetURL()
 
         log("plist: target = \(targetURL.path)")
@@ -136,7 +134,6 @@ enum SystemPlistOverwrite {
         let fm = FileManager.default
         let directory = targetURL.deletingLastPathComponent()
 
-        // 3. Temporary file in the same directory.
         let temporaryURL = directory.appendingPathComponent(
             ".ibaal3105-\(UUID().uuidString).plist"
         )
@@ -145,7 +142,7 @@ enum SystemPlistOverwrite {
             try? fm.removeItem(at: temporaryURL)
         }
 
-        // 4. Write temporary file.
+        // Write temporary file.
         log("plist: writing temporary file")
 
         do {
@@ -157,7 +154,7 @@ enum SystemPlistOverwrite {
             throw SystemPlistOverwriteError.writeFailed
         }
 
-        // 5. Validate temporary file again.
+        // Validate temporary file.
         let temporaryData: Data
 
         do {
@@ -183,32 +180,21 @@ enum SystemPlistOverwrite {
             throw SystemPlistOverwriteError.invalidPlist
         }
 
-        // 6. Replace system file.
+        // Replace target.
         log("plist: replacing system file")
 
         do {
-            if fm.fileExists(atPath: targetURL.path) {
-
-                _ = try fm.replaceItemAt(
-                    targetURL,
-                    withItemAt: temporaryURL,
-                    backupItemName: nil,
-                    options: []
-                )
-
-            } else {
-
-                try fm.moveItem(
-                    at: temporaryURL,
-                    to: targetURL
-                )
-            }
-
+            _ = try fm.replaceItemAt(
+                targetURL,
+                withItemAt: temporaryURL,
+                backupItemName: nil,
+                options: []
+            )
         } catch {
             throw SystemPlistOverwriteError.writeFailed
         }
 
-        // 7. Read-back verification.
+        // Read-back verification.
         log("plist: verifying system file")
 
         let resultData: Data
