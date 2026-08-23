@@ -25,58 +25,45 @@ jobs:
         run: |
           set -e
 
-          rm -rf build
-
           xcodebuild \
             -project ThreeOneOSFive.xcodeproj \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath "$PWD/build/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build \
-            || {
-              echo "::error::xcodebuild failed"
-              exit 1
-            }
+            build
 
-      - name: Locate application
+      - name: Locate built application
         id: app
         shell: bash
         run: |
           set -e
 
-          ROOT="$PWD/build/DerivedData"
+          DERIVED="$HOME/Library/Developer/Xcode/DerivedData"
 
-          echo "Searching for iOS application..."
+          echo "Searching Xcode DerivedData..."
+          echo "Root: $DERIVED"
 
-          APP=$(find "$ROOT" \
+          APP=$(find "$DERIVED" \
             -type d \
             -name "*.app" \
-            -path "*Build/Products/*-iphoneos/*.app" \
-            -print | head -n 1)
+            -print 2>/dev/null | head -n 1)
 
           if [ -z "$APP" ]; then
-            echo "::error::No iOS .app found."
+            echo "::error::No .app found after successful xcodebuild."
 
-            echo "=== Build Products ==="
-            find "$ROOT" \
+            echo "=== DerivedData directories ==="
+            find "$DERIVED" \
+              -maxdepth 5 \
               -type d \
-              -path "*Build/Products/*" \
-              -print || true
-
-            echo "=== All .app bundles ==="
-            find "$ROOT" \
-              -type d \
-              -name "*.app" \
-              -print || true
+              -print 2>/dev/null | head -n 300
 
             exit 1
           fi
 
           echo "================================"
-          echo "FOUND APP"
+          echo "FOUND APPLICATION"
           echo "================================"
           echo "$APP"
 
@@ -88,16 +75,18 @@ jobs:
 
           APP="${{ steps.app.outputs.app }}"
 
-          echo "App: $APP"
+          echo "Application:"
+          echo "$APP"
 
           echo ""
           echo "Bundle ID:"
+
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             "$APP/Info.plist"
 
           echo ""
-          echo "App size:"
+          echo "Application size:"
           du -sh "$APP"
 
       - name: Create unsigned IPA
@@ -106,7 +95,7 @@ jobs:
 
           APP="${{ steps.app.outputs.app }}"
 
-          rm -rf build/Payload
+          rm -rf build
           mkdir -p build/Payload
 
           cp -R "$APP" build/Payload/
@@ -118,8 +107,9 @@ jobs:
             ibaal3105-unsigned.ipa \
             Payload
 
+          echo ""
           echo "================================"
-          echo "IPA CREATED"
+          echo "UNSIGNED IPA CREATED"
           echo "================================"
 
           ls -lh ibaal3105-unsigned.ipa
@@ -130,6 +120,7 @@ jobs:
 
           cd build
 
+          echo "IPA contents:"
           unzip -l ibaal3105-unsigned.ipa
 
       - name: Upload unsigned IPA
@@ -139,7 +130,7 @@ jobs:
           path: ibaal3105/build/ibaal3105-unsigned.ipa
           if-no-files-found: error
 
-      - name: Upload build directory
+      - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: ibaal3105-build-output
