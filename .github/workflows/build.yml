@@ -34,7 +34,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Locate built application
+      - name: Locate application
         id: app
         shell: bash
         run: |
@@ -42,29 +42,36 @@ jobs:
 
           DERIVED="$HOME/Library/Developer/Xcode/DerivedData"
 
-          echo "Searching Xcode DerivedData..."
-          echo "Root: $DERIVED"
+          echo "Searching Build/Products..."
 
           APP=$(find "$DERIVED" \
             -type d \
+            -path "*/Build/Products/*" \
             -name "*.app" \
             -print 2>/dev/null | head -n 1)
 
           if [ -z "$APP" ]; then
-            echo "::error::No .app found after successful xcodebuild."
+            echo "::error::No .app found in Build/Products."
 
-            echo "=== DerivedData directories ==="
+            echo ""
+            echo "=== Build/Products ==="
             find "$DERIVED" \
-              -maxdepth 5 \
               -type d \
+              -path "*/Build/Products/*" \
+              -print 2>/dev/null || true
+
+            echo ""
+            echo "=== Xcode build directories ==="
+            find "$DERIVED" \
+              -type d \
+              -path "*/Build/*" \
+              -maxdepth 8 \
               -print 2>/dev/null | head -n 300
 
             exit 1
           fi
 
-          echo "================================"
-          echo "FOUND APPLICATION"
-          echo "================================"
+          echo "FOUND APP:"
           echo "$APP"
 
           echo "app=$APP" >> "$GITHUB_OUTPUT"
@@ -75,8 +82,7 @@ jobs:
 
           APP="${{ steps.app.outputs.app }}"
 
-          echo "Application:"
-          echo "$APP"
+          echo "Application: $APP"
 
           echo ""
           echo "Bundle ID:"
@@ -108,9 +114,9 @@ jobs:
             Payload
 
           echo ""
-          echo "================================"
+          echo "=============================="
           echo "UNSIGNED IPA CREATED"
-          echo "================================"
+          echo "=============================="
 
           ls -lh ibaal3105-unsigned.ipa
 
@@ -118,10 +124,7 @@ jobs:
         run: |
           set -e
 
-          cd build
-
-          echo "IPA contents:"
-          unzip -l ibaal3105-unsigned.ipa
+          unzip -l build/ibaal3105-unsigned.ipa
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -130,9 +133,11 @@ jobs:
           path: ibaal3105/build/ibaal3105-unsigned.ipa
           if-no-files-found: error
 
-      - name: Upload build output
+      - name: Upload build diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ibaal3105-build-output
-          path: ibaal3105/build/
-          if-no-files-found: warn
+          name: ibaal3105-build-diagnostics
+          path: |
+            ibaal3105/build/
+          if-no-files-found: ignore
