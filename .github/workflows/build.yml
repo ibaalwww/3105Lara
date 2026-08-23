@@ -1,21 +1,20 @@
-      - name: Diagnose Xcode targets
-        shell: bash
-        run: |
-          set -e
+- name: Inspect project file
+  working-directory: ibaal3105
+  shell: bash
+  run: |
+    set -e
 
-          echo "===== PROJECT ====="
-          xcodebuild \
-            -list \
-            -project ThreeOneOSFive.xcodeproj
+    echo "=== PROJECT FILES ==="
+    find ThreeOneOSFive.xcodeproj -maxdepth 3 -type f -print
 
-          echo ""
-          echo "===== BUILD SETTINGS ====="
+    echo ""
+    echo "=== TARGET NAMES ==="
+    grep -n "productName\|productType\|PRODUCT_NAME\|wrapper.application" \
+      ThreeOneOSFive.xcodeproj/project.pbxproj \
+      || true
 
-          xcodebuild \
-            -project ThreeOneOSFive.xcodeproj \
-            -configuration Release \
-            -sdk iphoneos \
-            -showBuildSettings \
-            | grep -E \
-              '(^| )TARGET_NAME =|PRODUCT_NAME =|FULL_PRODUCT_NAME =|PRODUCT_TYPE =|WRAPPER_EXTENSION =|TARGET_BUILD_DIR =|CONFIGURATION_BUILD_DIR =' \
-            || true
+    echo ""
+    echo "=== BUILD CONFIGURATIONS ==="
+    grep -n "XCBuildConfiguration\|PRODUCT_BUNDLE_IDENTIFIER" \
+      ThreeOneOSFive.xcodeproj/project.pbxproj \
+      | head -n 100
