@@ -69,6 +69,7 @@
 		3105A228 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 3105A120; };
 		3105A211 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3105A031; };
 		3105P200 /* PListEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3105P100; };
+		3105P201 /* SystemPlistOverwrite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3105P101; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -152,6 +153,7 @@
 		3105A122 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/Localizable.strings; sourceTree = "<group>"; };
 		3105B123 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		3105P100 /* PListEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PListEditorView.swift; sourceTree = "<group>"; };
+		3105P101 /* SystemPlistOverwrite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPlistOverwrite.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -173,6 +175,7 @@
 			);
 			sourceTree = "<group>";
 		};
+
 		3105A401 /* ThreeOneOSFive */ = {
 			isa = PBXGroup;
 			children = (
@@ -190,6 +193,7 @@
 			path = ThreeOneOSFive;
 			sourceTree = "<group>";
 		};
+
 		3105A402 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -198,6 +202,7 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+
 		3105A403 /* exploit */ = {
 			isa = PBXGroup;
 			children = (
@@ -211,6 +216,7 @@
 			path = exploit;
 			sourceTree = "<group>";
 		};
+
 		3105A404 /* views */ = {
 			isa = PBXGroup;
 			children = (
@@ -222,6 +228,7 @@
 				3105I100 /* FilesTabControls.swift */,
 				3105I101 /* FilesTabSwitcherView.swift */,
 				3105P100 /* PListEditorView.swift */,
+				3105P101 /* SystemPlistOverwrite.swift */,
 				3105B121 /* PatchProjectsView.swift */,
 				3105B122 /* PatchProjectEditorView.swift */,
 				3105C102 /* FolderPatchSelectionView.swift */,
@@ -232,6 +239,7 @@
 			path = views;
 			sourceTree = "<group>";
 		};
+
 		3105A405 /* helpers */ = {
 			isa = PBXGroup;
 			children = (
@@ -276,6 +284,7 @@
 			path = helpers;
 			sourceTree = "<group>";
 		};
+
 		3105A406 /* kexploit */ = {
 			isa = PBXGroup;
 			children = (
@@ -364,10 +373,21 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3105A200, 3105A201, 3105A203, 3105A204,
-				3105A205, 3105A206, 3105A207, 3105A209,
-				3105A210, 3105A220, 3105A221, 3105A222, 3105A223,
-				3105A224, 3105A225,
+				3105A200,
+				3105A201,
+				3105A203,
+				3105A204,
+				3105A205,
+				3105A206,
+				3105A207,
+				3105A209,
+				3105A210,
+				3105A220,
+				3105A221,
+				3105A222,
+				3105A223,
+				3105A224,
+				3105A225,
 				3105A226,
 				3105A227,
 				3105A233,
@@ -413,6 +433,7 @@
 				3105I200,
 				3105I201,
 				3105P200,
+				3105P201,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,6 +487,7 @@
 			};
 			name = Debug;
 		};
+
 		3105A602 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -500,6 +522,7 @@
 			};
 			name = Release;
 		};
+
 		3105AA01 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -562,6 +585,7 @@
 			};
 			name = Debug;
 		};
+
 		3105AA02 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -629,6 +653,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+
 		3105AA00 /* Build configuration list for PBXProject "ThreeOneOSFive" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
